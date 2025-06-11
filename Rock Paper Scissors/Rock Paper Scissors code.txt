@@ -1,0 +1,430 @@
+# %% [markdown]
+# # Rock-Paper-Scissors Game
+# ![Rock Paper Scissors Banner](https://i.imgur.com/JZkLf0O.png)
+
+# %% [markdown]
+# ## Game Modes
+# 1. **Single Player** - Play against the computer
+# 2. **Friends Mode** - Local multiplayer with friends
+# 3. **Online Mode** - Play with random opponents online
+
+# %% [markdown]
+# ## How to Play
+# - Rock crushes scissors
+# - Scissors cut paper
+# - Paper covers rock
+# 
+# Choose your weapon wisely!
+
+# %%
+import random
+import time
+import ipywidgets as widgets
+from IPython.display import display, clear_output, HTML
+import qrcode
+from io import BytesIO
+import base64
+import threading
+from collections import defaultdict
+
+# %% [markdown]
+# ## Game Implementation
+
+# %%
+class RockPaperScissors:
+    def __init__(self):
+        self.choices = ["rock", "paper", "scissors"]
+        self.user_score = 0
+        self.computer_score = 0
+        self.rounds_played = 0
+        self.rewards = {
+            3: "Bronze Player",
+            5: "Silver Warrior",
+            10: "Gold Champion",
+            15: "Platinum Master"
+        }
+        self.achievements = set()
+        self.game_history = []
+        self.online_players = defaultdict(dict)
+        self.current_online_game = None
+        
+        # Color theme
+        self.colors = {
+            'background': '#FFD700',
+            'text': '#333333',
+            'button': '#4CAF50',
+            'button_text': 'white',
+            'header': '#FF5733',
+            'card': '#F0F8FF'
+        }
+        
+        # Initialize widgets
+        self.init_widgets()
+        
+    def init_widgets(self):
+        # Mode selection
+        self.mode_selector = widgets.RadioButtons(
+            options=['Single Player', 'Friends Mode', 'Online Mode'],
+            description='Game Mode:',
+            style={'description_width': 'initial'}
+        )
+        
+        # Game buttons
+        self.rock_btn = widgets.Button(
+            description="Rock",
+            button_style='',
+            icon='',
+            style={'button_color': self.colors['button']}
+        )
+        self.paper_btn = widgets.Button(
+            description="Paper",
+            button_style='',
+            icon='',
+            style={'button_color': self.colors['button']}
+        )
+        self.scissors_btn = widgets.Button(
+            description="Scissors",
+            button_style='',
+            icon='',
+            style={'button_color': self.colors['button']}
+        )
+        
+        # Output area
+        self.output = widgets.Output()
+        
+        # Player name input
+        self.player_name = widgets.Text(
+            value='Player1',
+            placeholder='Enter your name',
+            description='Name:',
+            disabled=False
+        )
+        
+        # Friend name input
+        self.friend_name = widgets.Text(
+            value='Player2',
+            placeholder="Friend's name",
+            description='Friend:',
+            disabled=False
+        )
+        
+        # Online mode controls
+        self.join_online_btn = widgets.Button(
+            description="Join Online Game",
+            button_style='',
+            icon='',
+            style={'button_color': self.colors['button']}
+        )
+        
+        # QR code display
+        self.qr_output = widgets.Output()
+        
+        # Stats display
+        self.stats_output = widgets.Output()
+        
+        # Set up button events
+        self.rock_btn.on_click(self.on_choice_click)
+        self.paper_btn.on_click(self.on_choice_click)
+        self.scissors_btn.on_click(self.on_choice_click)
+        self.join_online_btn.on_click(self.join_online_game)
+        
+    def on_choice_click(self, btn):
+        with self.output:
+            clear_output(wait=True)
+            choice = btn.description.lower()
+            if self.mode_selector.value == 'Single Player':
+                self.play_single_player(choice)
+            elif self.mode_selector.value == 'Friends Mode':
+                self.play_friends_mode(choice)
+            elif self.mode_selector.value == 'Online Mode' and self.current_online_game:
+                self.play_online_mode(choice)
+    
+    def play_single_player(self, user_choice):
+        computer_choice = random.choice(self.choices)
+        result = self.determine_winner(user_choice, computer_choice)
+        
+        if result == "user":
+            self.user_score += 1
+        elif result == "computer":
+            self.computer_score += 1
+        
+        self.rounds_played += 1
+        self.update_stats()
+        
+        # Display result with colors
+        display(HTML(f"""
+        <div style="background-color:{self.colors['card']}; padding:10px; border-radius:5px;">
+            <h3 style="color:{self.colors['header']};">Round {self.rounds_played}</h3>
+            <p>You chose: <strong>{user_choice.title()}</strong></p>
+            <p>Computer chose: <strong>{computer_choice.title()}</strong></p>
+            <h4 style="color:{'green' if result == 'user' else 'red' if result == 'computer' else 'blue'};">{
+                'You win!' if result == 'user' else 'Computer wins!' if result == 'computer' else "It's a tie!"
+            }</h4>
+        </div>
+        """))
+        
+        self.check_rewards()
+    
+    def play_friends_mode(self, player1_choice):
+        with self.output:
+            clear_output(wait=True)
+            display(HTML(f"""
+            <div style="background-color:{self.colors['card']}; padding:10px; border-radius:5px;">
+                <h3 style="color:{self.colors['header']};">{self.player_name.value}, make your choice!</h3>
+            </div>
+            """))
+            
+            # Store player 1 choice
+            self.player1_choice = player1_choice
+            
+            # Hide player 1 buttons
+            self.rock_btn.layout.visibility = 'hidden'
+            self.paper_btn.layout.visibility = 'hidden'
+            self.scissors_btn.layout.visibility = 'hidden'
+            
+            # Show friend buttons
+            self.friend_rock_btn = widgets.Button(
+                description="Rock",
+                button_style='',
+                icon='',
+                style={'button_color': '#FF6347'}
+            )
+            self.friend_paper_btn = widgets.Button(
+                description="Paper",
+                button_style='',
+                icon='',
+                style={'button_color': '#FF6347'}
+            )
+            self.friend_scissors_btn = widgets.Button(
+                description="Scissors",
+                button_style='',
+                icon='',
+                style={'button_color': '#FF6347'}
+            )
+            
+            self.friend_rock_btn.on_click(self.on_friend_choice)
+            self.friend_paper_btn.on_click(self.on_friend_choice)
+            self.friend_scissors_btn.on_click(self.on_friend_choice)
+            
+            display(widgets.HBox([self.friend_rock_btn, self.friend_paper_btn, self.friend_scissors_btn]))
+    
+    def on_friend_choice(self, btn):
+        with self.output:
+            clear_output(wait=True)
+            player2_choice = btn.description.lower()
+            result = self.determine_winner(self.player1_choice, player2_choice)
+            
+            if result == "user":
+                winner = self.player_name.value
+            elif result == "computer":
+                winner = self.friend_name.value
+            else:
+                winner = "No one"
+            
+            self.rounds_played += 1
+            self.update_stats()
+            
+            display(HTML(f"""
+            <div style="background-color:{self.colors['card']}; padding:10px; border-radius:5px;">
+                <h3 style="color:{self.colors['header']};">Round {self.rounds_played}</h3>
+                <p>{self.player_name.value} chose: <strong>{self.player1_choice.title()}</strong></p>
+                <p>{self.friend_name.value} chose: <strong>{player2_choice.title()}</strong></p>
+                <h4 style="color:{'green' if result == 'user' else 'red' if result == 'computer' else 'blue'};">{
+                    f'{winner} wins!' if result != 'tie' else "It's a tie!"
+                }</h4>
+            </div>
+            """))
+            
+            # Reset buttons for next round
+            self.rock_btn.layout.visibility = 'visible'
+            self.paper_btn.layout.visibility = 'visible'
+            self.scissors_btn.layout.visibility = 'visible'
+            
+            self.check_rewards()
+    
+    def join_online_game(self, btn):
+        with self.output:
+            clear_output(wait=True)
+            display(HTML(f"""
+            <div style="background-color:{self.colors['card']}; padding:10px; border-radius:5px;">
+                <h3 style="color:{self.colors['header']};">Searching for opponent...</h3>
+            </div>
+            """))
+            
+            # Simulate finding an opponent
+            time.sleep(2)
+            
+            self.current_online_game = {
+                'player1': self.player_name.value,
+                'player2': "OnlineGuest" + str(random.randint(1000, 9999)),
+                'status': 'waiting'
+            }
+            
+            clear_output(wait=True)
+            display(HTML(f"""
+            <div style="background-color:{self.colors['card']}; padding:10px; border-radius:5px;">
+                <h3 style="color:{self.colors['header']};">Game Found!</h3>
+                <p>You are playing against: <strong>{self.current_online_game['player2']}</strong></p>
+                <p>Make your choice when ready!</p>
+            </div>
+            """))
+    
+    def play_online_mode(self, player_choice):
+        with self.output:
+            clear_output(wait=True)
+            display(HTML(f"""
+            <div style="background-color:{self.colors['card']}; padding:10px; border-radius:5px;">
+                <h3 style="color:{self.colors['header']};">Waiting for opponent's choice...</h3>
+            </div>
+            """))
+            
+            # Simulate opponent making a choice
+            time.sleep(2)
+            opponent_choice = random.choice(self.choices)
+            
+            result = self.determine_winner(player_choice, opponent_choice)
+            
+            if result == "user":
+                winner = self.player_name.value
+            elif result == "computer":
+                winner = self.current_online_game['player2']
+            else:
+                winner = "No one"
+            
+            self.rounds_played += 1
+            self.update_stats()
+            
+            clear_output(wait=True)
+            display(HTML(f"""
+            <div style="background-color:{self.colors['card']}; padding:10px; border-radius:5px;">
+                <h3 style="color:{self.colors['header']};">Online Match Result</h3>
+                <p>{self.player_name.value} chose: <strong>{player_choice.title()}</strong></p>
+                <p>{self.current_online_game['player2']} chose: <strong>{opponent_choice.title()}</strong></p>
+                <h4 style="color:{'green' if result == 'user' else 'red' if result == 'computer' else 'blue'};">{
+                    f'{winner} wins!' if result != 'tie' else "It's a tie!"
+                }</h4>
+            </div>
+            """))
+            
+            self.check_rewards()
+            self.current_online_game = None
+    
+    def determine_winner(self, choice1, choice2):
+        if choice1 == choice2:
+            return "tie"
+        elif (choice1 == "rock" and choice2 == "scissors") or \
+             (choice1 == "scissors" and choice2 == "paper") or \
+             (choice1 == "paper" and choice2 == "rock"):
+            return "user"
+        else:
+            return "computer"
+    
+    def check_rewards(self):
+        new_achievements = []
+        for threshold, reward in self.rewards.items():
+            if self.rounds_played >= threshold and reward not in self.achievements:
+                self.achievements.add(reward)
+                new_achievements.append(reward)
+        
+        if new_achievements:
+            with self.output:
+                for achievement in new_achievements:
+                    display(HTML(f"""
+                    <div style="background-color:#FFD700; padding:10px; border-radius:5px; margin-top:10px;">
+                        <h4 style="color:#8B4513;">🏆 Achievement Unlocked: {achievement}!</h4>
+                    </div>
+                    """))
+    
+    def update_stats(self):
+        with self.stats_output:
+            clear_output(wait=True)
+            display(HTML(f"""
+            <div style="background-color:{self.colors['card']}; padding:10px; border-radius:5px;">
+                <h3 style="color:{self.colors['header']};">Game Statistics</h3>
+                <p>Rounds Played: <strong>{self.rounds_played}</strong></p>
+                <p>Wins: <strong>{self.user_score}</strong></p>
+                <p>Losses: <strong>{self.computer_score}</strong></p>
+                <p>Ties: <strong>{self.rounds_played - self.user_score - self.computer_score}</strong></p>
+                <p>Achievements: <strong>{', '.join(self.achievements) if self.achievements else 'None yet'}</strong></p>
+            </div>
+            """))
+    
+    def generate_qr_code(self):
+        # Generate a URL for the game (simulated)
+        game_url = "https://example.com/rps-game/" + str(random.randint(1000, 9999))
+        
+        # Create QR code
+        qr = qrcode.QRCode(version=1, box_size=10, border=5)
+        qr.add_data(game_url)
+        qr.make(fit=True)
+        img = qr.make_image(fill_color="black", back_color="white")
+        
+        # Convert to display in notebook
+        buffered = BytesIO()
+        img.save(buffered, format="PNG")
+        img_str = base64.b64encode(buffered.getvalue()).decode()
+        
+        with self.qr_output:
+            clear_output(wait=True)
+            display(HTML(f"""
+            <div style="background-color:{self.colors['card']}; padding:10px; border-radius:5px; text-align:center;">
+                <h3 style="color:{self.colors['header']};">Share Game</h3>
+                <img src="data:image/png;base64,{img_str}" style="width:200px; height:200px;">
+                <p>Scan QR code to join game</p>
+                <p>Or share this link: <a href="{game_url}" target="_blank">{game_url}</a></p>
+            </div>
+            """))
+    
+    def show_game_ui(self):
+        # Display the game UI
+        display(HTML(f"""
+        <div style="background-color:{self.colors['background']}; padding:20px; border-radius:10px;">
+            <h1 style="color:{self.colors['header']}; text-align:center;">Rock Paper Scissors</h1>
+        </div>
+        """))
+        
+        # Display mode selector and player name
+        display(widgets.VBox([
+            self.mode_selector,
+            self.player_name,
+            widgets.HBox([self.rock_btn, self.paper_btn, self.scissors_btn]),
+            self.join_online_btn if self.mode_selector.value == 'Online Mode' else widgets.HBox(),
+            self.output
+        ]))
+        
+        # Display friends name input when in friends mode
+        if self.mode_selector.value == 'Friends Mode':
+            display(self.friend_name)
+        
+        # Display stats and QR code
+        display(widgets.HBox([
+            self.stats_output,
+            self.qr_output
+        ]))
+        
+        # Generate initial QR code
+        self.generate_qr_code()
+        self.update_stats()
+        
+        # Update UI when mode changes
+        def on_mode_change(change):
+            self.current_online_game = None
+            with self.output:
+                clear_output()
+                if change['new'] == 'Friends Mode':
+                    display(self.friend_name)
+                if change['new'] == 'Online Mode':
+                    display(self.join_online_btn)
+                else:
+                    display(widgets.HBox([self.rock_btn, self.paper_btn, self.scissors_btn]))
+            self.generate_qr_code()
+        
+        self.mode_selector.observe(on_mode_change, names='value')
+
+# %% [markdown]
+# ## Start the Game
+# Run the cell below to start playing Rock-Paper-Scissors!
+
+# %%
+game = RockPaperScissors()
+game.show_game_ui()
